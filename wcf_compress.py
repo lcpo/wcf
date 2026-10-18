@@ -156,10 +156,13 @@ def gguf_tensor_to_wcf(name, g):
         raise ValueError(f"unsupported ndim {ndim} for {name}")
 
 
-# Tensors stored as raw F32 (tiny / sensitive to quantization)
+# Tensors stored as raw F32 (tiny / quantization-sensitive / used in
+# elementwise ops that don't support the WCF block type)
 SSM_NAMES = ('ssm_alpha', 'ssm_beta', 'ssm_a', 'ssm_dt', 'ssm_out',
              'ssm_conv1d', 'ssm_norm', 'attn_norm', 'post_attention_norm',
-             'output_norm', 'ffn_gate_inp')
+             'output_norm', 'ffn_gate_inp',
+             'attn_q_norm', 'attn_k_norm', 'shared_head_norm',
+             'enorm', 'hnorm')
 
 
 def compress_tensor(name, g):
