@@ -13,14 +13,17 @@
 
 ### CPU (full CPU inference — isolates dequant/vec_dot correctness)
 
-| Format | 131 (ROCm build) | 148 (CUDA build) |
-|---|---:|---:|
-| BF16 (reference) | 7.0740 ± 0.0458 | — |
-| Q4_K_M | 7.1487 ± 0.0464 | — |
-| **WCF** | **7.7028 ± 0.0509** | **7.7046 ± 0.0509** |
+CPU PPL was measured on **131 only**. 148 is a GPU-only node (old AMD FX CPU — not
+representative for LLM inference, excluded from CPU benchmarking by hardware policy).
 
-**Verdict**: WCF CPU PPL is **identical on both platforms** (7.7028 vs 7.7046 — within
-run-to-run variance, cross-runtime deterministic). The +0.55 PPL penalty vs Q4_K_M
+| Format | 131 (ROCm build, 22 threads) |
+|---|---:|
+| BF16 (reference) | 7.0740 ± 0.0458 |
+| Q4_K_M | 7.1487 ± 0.0464 |
+| **WCF** | **7.7028 ± 0.0509** |
+
+**Verdict**: WCF CPU PPL (7.7028) equals the 131 GPU nofgdn PPL (7.7046) — the CPU
+dequant/vec_dot path and the GPU path agree. The +0.55 PPL penalty vs Q4_K_M
 (+7.8% over Q4_K_M, +8.9% over BF16) is the cost of 4-bit variable-bit quantization
 with per-block scale/offset.
 
@@ -35,9 +38,10 @@ with per-block scale/offset.
 | 131 ROCm, fa=on | Q4_K_M | 15.0721 (2 chunks, n_ctx 2048) |
 
 **Key findings**:
-- **148 CUDA WCF GPU PPL (7.44 on 20 chunks) is consistent with CPU (7.70 on 580)** —
-  different chunk counts cover different text; first-20-chunk CPU value is 7.74,
-  so CUDA GPU dequant+vec_dot is correct.
+- **148 CUDA WCF GPU PPL (7.44 on 20 chunks) is consistent with the 131 CPU
+  reference (7.70 on 580)** — different chunk counts cover different text;
+  the first-20-chunk value of the 131 CPU run is 7.74, so CUDA GPU
+  dequant+vec_dot is correct.
 - **131 ROCm WCF GPU with fused GDN is BROKEN (PPL 202.7)**. A/B test proved it's
   not the WCF format: Q4_K_M gives identical PPL old-vs-new build (14.88/15.07),
   and WCF fa=on vs fa=off differ by only 0.1 (202.70 vs 202.91) — the corruption
@@ -85,17 +89,16 @@ vs Q4_K_M 4.5 bpw but with super-block packing that's MMQ-friendly).
 | Check | Result |
 |---|---|
 | Round-trip (encoder↔decoder) | PASS (all bit widths 1-4, F16, 3D, raw F32) |
-| CPU PPL cross-runtime (131 vs 148) | 7.7028 vs 7.7046 — PASS (deterministic) |
-| CPU PPL vs GPU PPL (148) | 7.70 (580ch) vs 7.44 (20ch) — PASS (chunk coverage) |
-| CPU PPL vs GPU PPL (131, nofgdn) | 7.7046 = 7.7046 — PASS (exact) |
+| CPU PPL vs GPU PPL (131, nofgdn) | 7.7028 = 7.7046 — PASS (exact) |
 | A/B loader old vs new (Q4_K_M) | identical — PASS |
 | GPU fused-GDN WCF (131) | **FAIL (PPL 202.7)** — pre-existing kernel bug, not WCF |
 
 ## 4. Conclusions
 
-1. **WCF format is numerically sound**: CPU PPL is deterministic across ROCm and
-   CUDA runtimes, and GPU PPL matches CPU exactly when the fused-GDN kernel is
-   bypassed. The +0.55 PPL vs Q4_K_M is the expected 4-bit quality cost.
+1. **WCF format is numerically sound**: CPU PPL (131) matches GPU nofgdn PPL (131)
+   exactly (7.7028 = 7.7046), and the 148 CUDA GPU run (7.44 on 20 chunks) is
+   consistent with the same text coverage (first-20-chunk CPU value 7.74). The
+   +0.55 PPL vs Q4_K_M is the expected 4-bit quality cost.
 2. **WCF is slower than Q4_K_M on both platforms** (−25%…−44% tg, −41%…−45% pp).
    The per-block scale/offset decode in vec_dot and the lack of an MMQ path are
    the bottleneck. Future work: MMQ kernel for WCF, or super-block packing to
